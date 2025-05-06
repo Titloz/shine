@@ -102,7 +102,7 @@ object SubstsVM extends Substs {
   override def get(pv: AddressPatternVar, subst: SubstVM): Address = subst(pv)
 
   // FIXME: avoid cloning all the time ...
-  private def withClone(subst: SubstVM, f: SubstVM => ()): SubstVM = {
+  private def withClone(subst: SubstVM, f: SubstVM => Unit): SubstVM = {
     val c = subst.deepClone()
     f(c)
     c
@@ -128,6 +128,8 @@ object SubstsVM extends Substs {
       VecMap(tvs.to(Vec)), VecMap(dvs.to(Vec)), VecMap(avs.to(Vec)))
   }
 }
+
+// i might need to copy & modify substvm to work for snodes
 
 /** A substitution mapping variables to their match in the [[EGraph]].
   * It uses hash-consing for structural sharing amongst many substitutions.

@@ -24,7 +24,7 @@ object Runner {
     iterLimit = 60,
     nodeLimit = 600_000,
     timeLimit = Duration.ofSeconds(30).toNanos,
-    memoryLimit = 2L * 1024L * 1024L * 1024L, // 2GiB
+    memoryLimit = 1L * 1024L * 1024L * 1024L, // 2GiB : 2L, 1GiB : 1L
     scheduler = SimpleScheduler,
     totalRemoved = 0L
   )
@@ -211,6 +211,8 @@ class Runner(var iterations: Vec[Iteration],
 
     // TODO: record removeTime in Iteration
     // val (removeTime, removed) = util.time {
+
+    // RewriteDirected are for destructive rewriting: now is the time to destruct!
     val removed =
       RewriteDirected.greedyRemoval(egraph, withAlternative)
     totalRemoved += removed

@@ -9,7 +9,8 @@ import rise.core.semantics
   * @tparam DT abstracts over contained data types
   * @tparam A abstracts over contained address spaces
   */
-sealed trait Node[+E, +N, +DT, +A] {
+sealed trait Node[+E, +N, +DT, +A] { // ENode = Node[EClassId, NatId, DataTypeId, Address]
+  // PNode = Node[Pattern, NatPattern, DataTypePattern, AddressPattern]
   def map[OE, ON, ODT, OA](fe: E => OE,
                            fn: N => ON,
                            fdt: DT => ODT,
