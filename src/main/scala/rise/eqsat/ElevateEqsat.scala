@@ -520,6 +520,7 @@ object ElevateEqsat {
         S // TO MODIFY
 
     def smatching_data(eg: EGraph, sg: SGraph, pat: DataTypePattern, shc: Substitutions, dt: DataTypeId)(S: List[shc.Substitution]) : List[shc.Substitution] = {
+    print("\n smatching data \n")
     pat match {
         case w: DataTypePatternVar => {
             var s : List[shc.Substitution] = Nil
@@ -566,7 +567,9 @@ object ElevateEqsat {
     }
     }
 
-    def smatching_type(eg: EGraph, sg: SGraph, pat: TypePattern, shc: Substitutions, t: TypeId)(S: List[shc.Substitution]) : List[shc.Substitution] = pat match {
+    def smatching_type(eg: EGraph, sg: SGraph, pat: TypePattern, shc: Substitutions, t: TypeId)(S: List[shc.Substitution]) : List[shc.Substitution] = {
+        print("\n smatching type \n")
+        pat match {
         case w : TypePatternVar => {
             var s : List[shc.Substitution] = Nil
             S.foreach {
@@ -617,6 +620,7 @@ object ElevateEqsat {
         case TypePatternAny => S;
         case dt: DataTypePattern => smatching_data(eg, sg, dt, shc, t.asInstanceOf[DataTypeId])(S);
     }
+    }
 
     def smatching_address(eg: EGraph, sg: SGraph, pat: AddressPattern, shc: Substitutions, t: Address)(S: List[shc.Substitution]) : List[shc.Substitution] =
         S // TO MODIFY
@@ -629,7 +633,11 @@ object ElevateEqsat {
             case Nil => aux;
             case head :: next => {
                 val substs = (smatching_aux(eg, sg, p, shc, head.sterm)(SubstitutionVM.empty :: Nil))
-                if (substs != Nil) {
+                val typed_substs = sg.get_type_of(head.sterm) match {
+                    case None => substs;
+                    case Some(t) => (smatching_type(eg, sg, p.t, shc, t)(substs))
+                }
+                if (typed_substs != Nil) {
                     treat_worklist(eg, sg, p, next, SMatches(head,substs)::aux)
                 } else { // if we don't match any substitution, why bother?
                     treat_worklist(eg, sg, p, next, aux)
@@ -810,7 +818,7 @@ object ElevateEqsat {
         // it is bad,
         // i do it for every eclassid instead of just choosing one eclassid per eclass!
         val sg = SGraph.empty()
-        // instead of an empty sgraph, i must have a copy of the hashconses from the egraph (as well as the types?)
+        // instead of an empty sgraph, i must have a copy of the hashconses from the egraph (as well as the types)
         val endlist = s_apply_aux(eg, sg, s, worklist)
         // starting from endlist, determine which enodes should be added to the egraph
         // & add them bottom-up for efficiency reasons
