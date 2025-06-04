@@ -12,8 +12,9 @@ import elevate.macros.StrategyMacro
 // import scala.language.implicitConversions
 import GuidedSearch._
 import scala.language.existentials
- import scala.annotation.tailrec
- import fastparse.Parsed
+import scala.annotation.tailrec
+import fastparse.Parsed
+import scala.collection.mutable.HashMap
  //import scala.util.Failure
  
 object ElevateEqsat {
@@ -143,6 +144,25 @@ object ElevateEqsat {
     case class RewriteRule(rw: SRewrite) extends StrategyS // Rewrite ~~ (String, (Searcher,Applier)) , shc: Substs
     case class ComposeSeq(s1: StrategyS, s2: StrategyS) extends StrategyS
     case class LeftChoice(s1: StrategyS, s2: StrategyS) extends StrategyS
+
+
+    object NamedStrategyS {
+        def init(name: String, strat: StrategyS): NamedStrategyS = 
+            new NamedStrategyS(name, strat)
+    }
+    
+    class NamedStrategyS(val name: String,
+                         val strat: StrategyS){
+        override def toString(): String = strat match {
+            case Skip => " skip ";
+            case Abort => " abort ";
+            case RewriteRule(rw) => s" ${rw.lhs} --> ${rw.rhs} ";
+            case ComposeSeq(s1, s2) => s"$s1;$s2";
+            case LeftChoice(s1, s2) => s"$s1<+$s2";
+        }
+
+        // def boundVars()
+    }
     /*
     case object Var extends StrategyS -> not clear here
     case class NonDetChoice(s1: StrategyS, s2: StrategyS) extends StrategyS
@@ -322,7 +342,7 @@ object ElevateEqsat {
         s
     }
 
-    def srec_call(eg: EGraph, shc: Substitutions, pis: List[PatternVarOrNode], tis: List[STerm])(l: List[shc.Substitution]): List[shc.Substitution] = 
+    def srec_call(eg: EGraph, shc: Substitutions, pis: List[Pattern], tis: List[STerm])(l: List[shc.Substitution]): List[shc.Substitution] = 
     (pis, tis) match {
         case (Nil, Nil) => l;
         case (Nil, _) => ???; // just make sure beforehand that the lists have equal length
@@ -330,8 +350,8 @@ object ElevateEqsat {
         case (pi::pjs, ti::tjs) => srec_call(eg, shc, pjs, tjs)(smatching_aux(eg,pi,shc,ti)(l));
     }
 
-    def smatching_aux(eg: EGraph, p: PatternVarOrNode, shc: Substitutions, t: STerm)(S: List[shc.Substitution]) : List[shc.Substitution] =
-    p match {
+    def smatching_aux(eg: EGraph, pat: Pattern, shc: Substitutions, t: STerm)(S: List[shc.Substitution]) : List[shc.Substitution] =
+    pat.p match { //pat.p
         case x: PatternVar => {
             t match {
                 case Ec(i) => {
@@ -350,8 +370,8 @@ object ElevateEqsat {
                                 }
                             } catch { // index is not in dom(beta)
                                 case _: Throwable => {
-                                    val id = shc.insert(x,Ec(i),beta) // extend beta with index |-> t and add it to s
-                                    s = beta :: s
+                                    val id = shc.insert(x, Ec(i), beta) // extend beta with index |-> t and add it to s
+                                    s = id :: s
                                 }
                             } 
                         }
@@ -363,8 +383,7 @@ object ElevateEqsat {
                     S.foreach {
                         case beta => {
                             try {
-                                val v = shc.get(x, beta) // gives back an eclass! i should change the whole substs structure
-                                // to be able to deal with snodes ... 
+                                val v = shc.get(x, beta) 
                                 v match {
                                     case Ec(j) => (); // one is an e-class the other a snode!
                                     case Snode(m) => {
@@ -376,9 +395,8 @@ object ElevateEqsat {
                                 }
                             } catch {
                                 case _: Throwable => {
-                                    // val id = shc.insert(x,_,beta)
                                     val id = shc.insert(x, Snode(n), beta)
-                                    s = beta :: s
+                                    s = id :: s
                                 }
                             }
                         }
@@ -402,10 +420,10 @@ object ElevateEqsat {
                         var set : scala.collection.mutable.Set[shc.Substitution] = scala.collection.mutable.Set() 
                         eg.get(i).nodes.foreach { // for every f(t1,...,tn) \in class(t) :
                             case n => if (n.matches(node)) {
-                                val pis = node.children().toList.map(x => x.p)
+                                val pis = node.children().toList 
                                 val tis_aux = n.children().toList
                                 val tis = tis_aux.map(x => Ec(x))
-                                set ++= stoset(shc)(srec_call(eg, shc, pis, tis)(S)) // i must change rec_call
+                                set ++= stoset(shc)(srec_call(eg, shc, pis, tis)(S)) 
                             }
                         }
                         stolist(shc)(set) // avoid doublons
@@ -421,8 +439,9 @@ object ElevateEqsat {
                     } else { // node has >= 1 children
                         var set : scala.collection.mutable.Set[shc.Substitution] = scala.collection.mutable.Set() 
                         if (n.matches(node)) { // no need to iterate here: only one node in the sterm
-                                val pis = node.children().toList.map(x => x.p)
+                                val pis = node.children().toList // .map(x => x.p)
                                 val tis = n.children().toList
+                                //
                                 set = stoset(shc)(srec_call(eg, shc, pis, tis)(S)) // i must change rec_call
                         }
                         stolist(shc)(set) // avoid doublons
@@ -432,43 +451,352 @@ object ElevateEqsat {
         };
     }
 
+    // eclasses have a typeId !
+
+    def smatching_nat(eg: EGraph, sg: SGraph, pat: NatPattern, shc: Substitutions, dt: NatId)(S: List[shc.Substitution]) : List[shc.Substitution] =
+        S // TO MODIFY
+
+    def smatching_data(eg: EGraph, sg: SGraph, pat: DataTypePattern, shc: Substitutions, dt: DataTypeId)(S: List[shc.Substitution]) : List[shc.Substitution] = {
+    pat match {
+        case w: DataTypePatternVar => {
+            var s : List[shc.Substitution] = Nil
+            S.foreach {
+                case beta => {
+                    try { 
+                        val v = shc.get(w, beta) // index is in dom(beta)
+                        // val id = sg.add_children(dt)
+                        if (v == dt) {
+                            s = beta :: s 
+                        }
+                    } catch { // index is not in dom(beta)
+                        case _: Throwable => {
+                            val id = shc.insert(w, dt, beta) // extend beta with index |-> t and add it to s 
+                            // sg.add_children(dt)
+                            s = id :: s
+                        }
+                    }
+                };
+            }
+            s
+        };
+        case DataTypePatternNode(n) => {
+            var res : List[shc.Substitution] = Nil
+            val node = sg.apply(dt)
+            if (n.matches(node)) {
+                val n_nats = n.nats().toList
+                val n_dt = n.dataTypes().toList 
+                val node_nats = node.nats().toList 
+                val node_dt = node.dataTypes().toList
+                val nats = n_nats.zip(node_nats)
+                val dts = n_dt.zip(node_dt)
+                val res_nat =  nats.foldLeft(S)((substs, pair) => pair match {
+                    case (pattern, id) => smatching_nat(eg, sg, pattern, shc, id)(substs)
+                }) // smatching_nat(eg, n.nats(), shc, node_nats)
+                val res_data = dts.foldLeft(res_nat)((substs, pair) => pair match {
+                    case (pattern, id) => smatching_data(eg, sg, pattern, shc, id)(substs)
+                })
+                res = stolist(shc)(stoset(shc)(res_data)) // avoid doublons
+            }
+            res
+        };
+        case DataTypePatternAny => S;
+    }
+    }
+
+    def smatching_type(eg: EGraph, sg: SGraph, pat: TypePattern, shc: Substitutions, t: TypeId)(S: List[shc.Substitution]) : List[shc.Substitution] = pat match {
+        case w : TypePatternVar => {
+            var s : List[shc.Substitution] = Nil
+            S.foreach {
+                case beta => {
+                    try { 
+                        val v = shc.get(w, beta) // index is in dom(beta)
+                        // val id = sg.add_children(dt)
+                        if (v == t) {
+                            s = beta :: s 
+                        }
+                    } catch { // index is not in dom(beta)
+                        case _: Throwable => {
+                            val id = shc.insert(w, t, beta) // extend beta with index |-> t and add it to s 
+                            // sg.add_children(dt)
+                            s = id :: s
+                        }
+                    }
+                };
+            }
+            s
+        };
+        case TypePatternNode(n) => {
+            var res : List[shc.Substitution] = Nil
+            val node = sg.apply(dt)
+            if (n.matches(node)) {
+                ???
+            }
+            res
+        };
+        case TypePatternAny => S;
+        case dt: DataTypePattern => smatching_data(eg, sg, dt, shc, t.asInstanceOf[DataTypeId])(S);
+    }
+
+    /*
+    def smatching_aux2(eg: EGraph, pat: Pattern, shc: Substitutions, t: STerm)(S: List[shc.Substitution]) : List[shc.Substitution] = {
+        def unknownBehavior[T](): T = throw new Exception("unknown behavior here")
+        def patt(pattern: Pattern) : List[shc.Substitution] = pattern.p match {
+            case w: PatternVar => ???;
+            case PatternNode(node) => ???;
+        }
+
+        def nat(subst: shc.Substitution, p: NatPattern): shc.Substitution = p match {
+            case w: NatPatternVar => t match {
+                case Ec(i) => {
+                    val enode = eg.get(i).nodes(0)
+                    ???
+                    //val (canonicalized, ec) = eg.lookup(enode,???)
+                    //shc.insert(w, canonicalized._2, subst)
+                };
+                case Snode(n) => ??? //shc.insert(p, n._2, subst);
+            };
+            case NatPatternNode(n) => {
+                ??? // for every child give them nat(subst), it gives back subst_1, ..., subst_n and union them if possible 
+                // otherwise raise error
+            };
+            case NatPatternAny => unknownBehavior();
+        }
+
+        def data(pat: DataTypePattern, subst: shc.Substitution): shc.Substitution = pat match {
+            case w: DataTypePatternVar => /*t match {
+                case Ec(i) => {
+                    val enode = eg.get(i).nodes(0)
+                    ???//val (canonicalized, ec) = eg.lookup(enode,???)
+                    //shc.insert(w, canonicalized._3, subst)
+                };
+                case Snode(n) => ??? //shc.insert(pat, n._3, subst);
+            }*/;
+            case DataTypePatternNode(n) => ???;
+            case DataTypePatternAny => unknownBehavior();
+        }
+
+        def `type`(pat: TypePattern, subst: shc.Substitution): shc.Substitution = pat match {
+            case w: TypePatternVar => t match {
+                case Ec(i) => {
+                    val t = eg.get(i).t
+                }; 
+                case Snode(n) => ???;
+            };
+            case TypePatternNode(n) => ???;
+            case TypePatternAny => subst;
+            case dtp: DataTypePattern => data(dtp, subst);
+        }
+
+        def addr(pat: AddressPattern, subst: shc.Substitution): shc.Substitution = pat match {
+            case w: AddressPatternVar => t match {
+                case Ec(i) => {
+                    val enode = eg.get(i).nodes(0)
+                    ???//val (canonicalized, ec) = eg.lookup(enode,???)
+                    //shc.insert(w, canonicalized._4, subst)
+                };
+                case Snode(n) => ??? //shc.insert(p, n._4, subst);
+            };
+            case AddressPatternNode(n) => ???;
+            case AddressPatternAny => unknownBehavior();
+        }
+        ???
+    }
+    */
+
+
+
     case class SMatches(spair: SPair, substs: List[SubstitutionsVM.Substitution])
 
-    def treat_worklist(eg: EGraph, p: PatternVarOrNode, worklist: List[SPair], aux: List[SMatches]) : List[SMatches] = {
+    def treat_worklist(eg: EGraph, p: Pattern, worklist: List[SPair], aux: List[SMatches]) : List[SMatches] = {
         val shc = SubstitutionsVM
         worklist match {
             case Nil => aux;
             case head :: next => {
                 val substs = (smatching_aux(eg, p, shc, head.sterm)(SubstitutionVM.empty :: Nil))
-                treat_worklist(eg, p, next, SMatches(head,substs)::aux)
-            }
+                if (substs != Nil) {
+                    treat_worklist(eg, p, next, SMatches(head,substs)::aux)
+                } else { // if we don't match any substitution, why bother?
+                    treat_worklist(eg, p, next, aux)
+                }
+            };
                 //treat_worklist(eg, p, next, aux ::: (smatching_aux(eg, p, shc, head.sterm)(SubstitutionVM.empty :: Nil)));
         }
     }
 
-    def classical_smatching(eg: EGraph, p: PatternVarOrNode, worklist: List[SPair]) : List[SMatches] = {
+    def classical_smatching(eg: EGraph, p: Pattern, worklist: List[SPair]) : List[SMatches] = {
         treat_worklist(eg,p,worklist,Nil)
     }
 
-    def s_apply_aux(eg: EGraph, s: StrategyS, worklist: List[SPair]) : List[SPair] = s match {
+    def delta_lists(l1: List[SPair], l2: List[SPair]) : List[SPair] = 
+    // this function should only be called with l2 a sublist of l1, with the same order of elements
+    (l1, l2) match {
+        case (Nil, _) => Nil;
+        case (_, Nil) => l1;
+        case (h1 :: t1, h2 :: t2) => {
+            if (h1 == h2) {
+                delta_lists(t1,t2)
+            } else {
+                h1 :: (delta_lists(t1, t2))
+            }
+        }
+    }
+
+    
+    def s_apply_one(sg: SGraph, pattern: Pattern, subst: SubstitutionsVM.Substitution, new_wl: List[STerm]) : List[STerm] = {
+        val shc = SubstitutionsVM
+        def missingRhsTy[T](): T = throw new Exception("unknown type on right-hand side")
+        def pat1(pat: Pattern): List[STerm] = {
+            pat.p match {
+            case w: PatternVar => shc.get(w, subst)::new_wl
+            case PatternNode(n) => {
+                /*val enode = n.map(pat, nat, data, addr)
+                egraph.add(enode, `type`(p.t)) */
+                val snode = Snode(n.map(pat2, nat, data, addr))
+                sg.set_type_of(snode, `type`(pat.t))
+                snode::new_wl
+            }
+            }
+        }
+        def pat2(pat: Pattern): STerm = {
+            pat.p match {
+                case w: PatternVar => shc.get(w, subst)
+                case PatternNode(n) => {
+                    /*val enode = n.map(pat, nat, data, addr)
+                    egraph.add(enode, `type`(p.t)) */
+                    val snode = Snode(n.map(pat2, nat, data, addr))
+                    sg.set_type_of(snode, `type`(pat.t))
+                    snode
+                }
+            }
+        }
+        def nat(p: NatPattern): NatId = {
+            p match {
+            case w: NatPatternVar => shc.get(w, subst)
+            case NatPatternNode(n) => sg.add(n.map(nat)) 
+            case NatPatternAny => missingRhsTy()
+            }
+        }
+        def data(pat: DataTypePattern): DataTypeId = {
+            pat match {
+            case w: DataTypePatternVar => shc.get(w, subst)
+            case DataTypePatternNode(n) => sg.add(n.map(nat, data)) 
+            case DataTypePatternAny => missingRhsTy()
+            }
+        }
+        def `type`(pat: TypePattern): TypeId = {
+            pat match {
+            case w: TypePatternVar => shc.get(w, subst)
+            case TypePatternNode(n) => sg.add(n.map(`type`, nat, data))
+            case TypePatternAny => missingRhsTy()
+            case dtp: DataTypePattern => data(dtp)
+            }
+        }
+        def addr(pat: AddressPattern): Address = {
+            pat match {
+            case w: AddressPatternVar => shc.get(w, subst)
+            case AddressPatternNode(n) => n
+            case AddressPatternAny => missingRhsTy()
+            }
+        }
+
+        pat1(pattern)
+    }
+
+    def s_apply_all(sg: SGraph, pattern: Pattern, matches: List[SMatches]) : List[SPair] = matches match {
+        case Nil => Nil;
+        case head :: next => {
+            val origin = head.spair.origin 
+            // val sterm = head.spair.sterm 
+            val substs = head.substs 
+            var applied_all_substs : List[STerm] = Nil
+            for (sigma <- substs) {
+                print(s"\n start apply $sigma \n") // sigma is empty for the moment...
+                applied_all_substs = s_apply_one(sg, pattern, sigma, applied_all_substs)
+                print("\n end apply \n")
+            };
+            val new_spairs = applied_all_substs.map(sterm => SPair(origin, sterm))
+            new_spairs ::: (s_apply_all(sg, pattern, next))
+        };
+    }
+
+    def s_apply_aux(eg: EGraph, sg: SGraph, s: StrategyS, worklist: List[SPair]) : List[SPair] = s match {
         case Skip => worklist;
         case Abort => Nil;
         case RewriteRule(rw) => {
-            val lhs = rw.lhs.p // makes it a PatternVarOrNode, just for now. later, i will have to delete the p
-            // and have functions for typepattern datatypepattern etc
-            val rhs = rw.lhs.p // idem
+            val lhs = rw.lhs
+            val rhs = rw.rhs
+            print(s"\n lhs pattern: ${lhs.p} \n")
+            print(s"\n lhs type: ${lhs.t} \n")
+            print(s"\n rhs pattern: ${rhs.p} \n")
+            print(s"\n rhs type: ${rhs.t} \n")
             val matches = classical_smatching(eg, lhs, worklist)
-            ???
+            print(s"\n nb matches: ${matches.size} \n")
+            s_apply_all(sg, rhs, matches)
         };
-        case ComposeSeq(s1, s2) => s_apply_aux(eg, s2, s_apply_aux(eg, s1, worklist));
-        case LeftChoice(s1, s2) => ???; // just need to filter the Smatches: if the list is empty then add to the 2nd worklist 
+        case ComposeSeq(s1, s2) => s_apply_aux(eg, sg, s2, s_apply_aux(eg, sg, s1, worklist));
+        case LeftChoice(s1, s2) => {
+            val l1 = s_apply_aux(eg, sg, s1, worklist)
+            val worklist2 = delta_lists(worklist, l1)
+            val l2 = s_apply_aux(eg, sg, s2, worklist2)
+            l1 ::: l2
+        };
     }
 
-    def s_apply(eg: EGraph, s: StrategyS) : Unit = {
-        val worklist = eg.classes.map{(index, eclass) => (index, Ec(index))}.toList // it is bad,
+    def listToVec[A](l : List[A]) : Vec[A] = {
+        var vec : Vec[A] = Vec.empty[A]
+        l.foreach(el => vec += el)
+        vec
+    }
+
+    def s_add(eg: EGraph, sg: SGraph, roots: List[SPair]) : Vec[EClassId] = {
+        var memo: HashMap[STerm, EClassId] = HashMap.empty
+
+        def s_add_one(sterm : STerm) : EClassId = sterm match {
+            case Ec(i) => eg.find(i); // representant of the eclass
+            case Snode(n) => {
+                /*
+                val enode = n.mapChildren(child => sg.get_type_of(child) match {
+                    case None => ???; // should not happen
+                    case Some(t) => s_add_one(child, t)
+                })
+                eg.add(enode, t) */
+                memo.get(sterm) match {
+                    case None => {
+                        val enode = n.mapChildren(s_add_one)
+                        sg.get_type_of(sterm) match {
+                            case None => ???; // should not happen
+                            case Some(t) => {
+                                val id = eg.add(enode, t)
+                                memo += sterm -> id 
+                                id
+                            };
+                        }
+                    };
+                    case Some(id) => id;
+                }
+            };
+        }
+
+        // roots.map(pair => s_add_one(pair.sterm))
+
+        def unions(spair: SPair) : (EClassId, Boolean) = {
+            val eid = s_add_one(spair.sterm) 
+            eg.union(eid, spair.origin)
+        }
+        //var added = Vec.empty[EClassId]
+        val unified = roots.map(pair => unions(pair))
+        val filtered = unified.filter({ case (id, bool) => bool})
+        listToVec[EClassId](filtered.map({case (id, bool) => id}))
+    }
+
+    def s_apply(eg: EGraph, s: StrategyS) : Vec[EClassId] = {
+        val worklist = eg.classes.map{case (index, eclass) => (index, Ec(index))}.toList.map{case (x,y) => SPair(x,y)} 
+        // it is bad,
         // i do it for every eclassid instead of just choosing one eclassid per eclass!
-        val endlist = s_apply_aux(eg, s, worklist)
+        val sg = SGraph.empty()
+        val endlist = s_apply_aux(eg, sg, s, worklist)
         // starting from endlist, determine which enodes should be added to the egraph
         // & add them bottom-up for efficiency reasons
+        s_add(eg, sg, endlist)
     }
 }

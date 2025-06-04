@@ -108,6 +108,13 @@ object rules {
     "e2"
   )
 
+  // -- arithmetic --
+  val plusComm = NamedRewrite.init("plus-comm", 
+    app(app(add, "a"), "b")
+      --> 
+    app(app(add, "b"), "a")) 
+
+
   // -- algorithmic --
 
   val mapFusion = NamedRewrite.init("map-fusion",

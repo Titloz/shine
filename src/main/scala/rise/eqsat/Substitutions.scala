@@ -4,7 +4,7 @@ import ElevateEqsat._
 
 /** A collection of substitutions. */
 trait Substitutions {
-  /** A substitution mapping variables to their match in the [[EGraph]]. */
+  /** A substitution mapping variables to their match in the [[SGraph]]. */
   type Substitution
 
   def get(pv: PatternVar, substitution: Substitution): STerm

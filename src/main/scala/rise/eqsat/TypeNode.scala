@@ -182,6 +182,32 @@ sealed trait DataTypeNode[+N, +DT] extends TypeNode[Nothing, N, DT] {
       case PairType(a, b) => PairType(fdt(a), fdt(b))
       case ArrayType(s, dt) => ArrayType(fn(s), fdt(dt))
     }
+  
+  def dataTypes(): Iterator[DT] = this match {
+    case VectorType(_, dt) => Iterator(dt);
+    case PairType(dt1, dt2) => Iterator(dt1, dt2);
+    case ArrayType(_, dt) => Iterator(dt);
+    case _ => Iterator(); 
+  }
+
+  def nats(): Iterator[N] = this match {
+    case VectorType(n,_) => Iterator(n);
+    case IndexType(n) => Iterator(n);
+    case ArrayType(n, _) => Iterator(n);
+    case _ => Iterator();   
+  }
+
+  def matches(other: DataTypeNode[_, _]): Boolean = (this, other) match {
+    case (DataTypeVar(i), DataTypeVar(j)) => i == j;
+    case (ScalarType(s1), ScalarType(s2)) => s1 == s2; // unsure
+    case (NatType, NatType) => true;
+    case (VectorType(_,_), VectorType(_,_)) => true;
+    case (IndexType(_), IndexType(_)) => true;
+    case (PairType(_,_), PairType(_,_)) => true;
+    case (ArrayType(_,_), ArrayType(_,_)) => true;
+    case _ => false;
+  }
+  
 }
 final case class DataTypeVar(index: Int) extends DataTypeNode[Nothing, Nothing] {
   override def toString: String = s"%dt$index"

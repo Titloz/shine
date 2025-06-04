@@ -36,7 +36,7 @@ class Tiling extends test_util.Tests {
       ))))))
     }
 
-    val expr = wrap(f => *(f))
+    val expr = wrap(f => *(f)) // * is map
     val gold = wrap(f => J o **(f) o S)
 
     ProveEquiv.init().runCNF(expr, gold, minimalRules)
@@ -51,13 +51,14 @@ class Tiling extends test_util.Tests {
       ))))))
     }
 
-    val expr = wrap(f => **(f))
+    val expr = wrap(f => **(f)) 
     val golds = Seq(
       // 1 loop
-      wrap(f => J o ***(f) o S),
-      wrap(f => *(J o **(f) o S)),
+      wrap(f => J o ***(f) o S), // S is split, J is join : f -> join o map(map(map(f))) o split
+      wrap(f => *(J o **(f) o S)), // f -> map(join o map(map(f)) o split)
       // 2 loops
-      wrap(f => J o **(J) o *(T) o ****(f) o *(T) o **(S) o S)
+      wrap(f => J o **(J) o *(T) o ****(f) o *(T) o **(S) o S) // T is transpose
+      // f -> join o map(map(join)) o map(transpose) o map(map(map(map(f)))) o map(transpose) o map(map(split)) o split
     )
 
     // ~12s on laptop with array dimension predicate

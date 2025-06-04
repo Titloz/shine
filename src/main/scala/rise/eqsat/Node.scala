@@ -11,6 +11,7 @@ import rise.core.semantics
   */
 sealed trait Node[+E, +N, +DT, +A] { // ENode = Node[EClassId, NatId, DataTypeId, Address]
   // PNode = Node[Pattern, NatPattern, DataTypePattern, AddressPattern]
+  // SNode = Node[STerm, NatId, DataTypeId, Address]
   def map[OE, ON, ODT, OA](fe: E => OE,
                            fn: N => ON,
                            fdt: DT => ODT,

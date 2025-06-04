@@ -212,6 +212,8 @@ object NamedRewrite {
       }
 
     def makeTPat(t: rct.ExprType, bound: Expr.Bound, isRhs: Boolean): TypePattern =
+      {
+      print(s"\n $t \n")
       t match {
         case dt: rct.DataType => makeDTPat(dt, bound, isRhs)
         case rct.FunType(a, b) =>
@@ -230,6 +232,7 @@ object NamedRewrite {
         case rct.TypePlaceholder =>
           throw new Exception(s"did not expect $t, something was not infered")
       }
+      }
 
     def makeAPat(a: rct.AddressSpace, bound: Expr.Bound, isRhs: Boolean): AddressPattern =
       a match {
@@ -247,6 +250,11 @@ object NamedRewrite {
     val lhsPat = makePat(typedLhs, Expr.Bound.empty, isRhs = false)
     val rhsPat = makePat(typedRhs, Expr.Bound.empty, isRhs = true)
 
+    print(s"OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO\n $lhsPat \n OOOOOOOOOOOOOOOOOOOOOOOOOOO")
+    print(s"OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO\n $rhsPat \n OOOOOOOOOOOOOOOOOOOOOOOOOOO")
+
+  // asInstanceOf
+  
     def shiftAppliers[S, V](pvm: PatternVarMap[S, V],
                             mkShift: (S, V) => (S, V) => Applier => Applier,
                             mkShiftCheck: (S, V) => (S, V) => Applier => Applier,
@@ -529,6 +537,233 @@ object NamedRewrite {
     assert(allIsShiftCoherent(addrPatVars))
 
     Rewrite.init(name, searcher -> applier)
+  }
+
+    def toPatterns(name: String,
+           rule: (NamedRewriteDSL.Pattern, NamedRewriteDSL.Pattern),
+           parameters: Seq[NamedRewrite.Parameter] = Seq(),
+           ) : (rise.eqsat.Pattern, rise.eqsat.Pattern) = {
+    import rise.core.DSL.infer
+    import arithexpr.{arithmetic => ae}
+
+    val (lhs, rhs) = rule
+    val untypedFreeV = infer.collectFreeEnv(lhs).map { case (name, t) =>
+      assert(t == rct.TypePlaceholder)
+      name -> rct.TypeIdentifier("t" + name)
+    }
+    val typedLhs = infer(lhs, untypedFreeV, Set())
+    val freeV1 = infer.collectFreeEnv(typedLhs)
+    val freeT = rise.core.IsClosedForm.freeVars(typedLhs)._2.set
+    val freeV2 = parameters.flatMap {
+      case NotFreeIn(_, _) => None
+      case VectorizeScalarFun(f, n, fV) =>
+        assert(!freeV1.contains(fV))
+        val np = NamedRewriteDSL.stringAsNatPattern(n)
+        Some(fV -> vectorizeScalarFunType(np, freeV1(f)))
+    }
+    val freeV = freeV1 ++ freeV2
+    val typedRhs = infer(rc.TypeAnnotation(rhs, typedLhs.t), freeV, freeT)
+
+    trait PatVarStatus
+    case object Unknown extends PatVarStatus
+    case object Known extends PatVarStatus
+    // both known and coherent with other shifts
+    case object ShiftCoherent extends PatVarStatus
+
+    // from var name to var index and a status depending on local index shift
+    type PatternVarMap[S, V] = HashMap[String, HashMap[S, (V, PatVarStatus)]]
+    val patVars: PatternVarMap[Expr.Shift, PatternVar] = HashMap()
+    val natPatVars: PatternVarMap[Nat.Shift, NatPatternVar] = HashMap()
+    val dataTypePatVars: PatternVarMap[Type.Shift, DataTypePatternVar] = HashMap()
+    val typePatVars: PatternVarMap[Type.Shift, TypePatternVar] = HashMap()
+    val addrPatVars: PatternVarMap[Address.Shift, AddressPatternVar] = HashMap()
+
+    // nats which we need to pivot to avoid matching over certain nat constructs
+    val natsToPivot = Vec[(rct.Nat, rct.NatIdentifier, Nat.Shift, NatPatternVar)]()
+
+    val boundVarToShift = HashMap[String, Expr.Shift]()
+
+    def makePatVar[S, V](name: String,
+                         shift: S,
+                         pvm: PatternVarMap[S, V],
+                         constructor: Int => V,
+                         status: PatVarStatus): V = {
+      val shiftMap = pvm.getOrElseUpdate(name, HashMap())
+      val (pv, previousStatus) = shiftMap.getOrElseUpdate(shift, {
+        val pvCount = pvm.values.map(m => m.size).sum
+        (constructor(pvCount), Unknown)
+      })
+      val updatedStatus = (previousStatus, status) match {
+        case (Unknown, s) => s
+        case (s, Unknown) => s
+        case (Known, Known) => Known
+        case t => throw new Exception(s"did not expect $t")
+      }
+      shiftMap(shift) = (pv, updatedStatus)
+      pv
+    }
+
+    def makePat(expr: rc.Expr,
+                bound: Expr.Bound,
+                isRhs: Boolean,
+                matchType: Boolean = true): Pattern =
+      {
+        // I PROBABLY NEED TO SHIFT THE VARIABLES SO THAT MY PATTERNS ARE DISTINCTS
+        print(s"\n expr = ${expr} \n")
+        print(s"\n expr.t = ${expr.t} \n")
+        Pattern(expr match {
+        case i: rc.Identifier if freeV.contains(i.name) =>
+          makePatVar(i.name,
+            (bound.expr.size, bound.nat.size, bound.data.size, bound.addr.size),
+            patVars, PatternVar, if (isRhs) { Unknown } else { Known })
+        case i: rc.Identifier => PatternNode(Var(bound.indexOf(i)))
+
+        // note: we do not match for the type of lambda bodies, as we can always infer it:
+        //       lam(x : xt, e : et) : xt -> et
+        case rc.Lambda(x, e) =>
+          // right now we assume that all bound variables are uniquely named
+          if (!isRhs) {
+            assert(!boundVarToShift.contains(x.name))
+            boundVarToShift += x.name ->
+              (bound.expr.size + 1, bound.nat.size, bound.data.size, bound.addr.size)
+          }
+          PatternNode(Lambda(makePat(e, bound + x, isRhs, matchType = false)))
+        case rc.DepLambda(rct.NatKind, x: rct.NatIdentifier, e) =>
+          PatternNode(NatLambda(makePat(e, bound + x, isRhs, matchType = false)))
+        case rc.DepLambda(rct.DataKind, x: rcdt.DataTypeIdentifier, e) =>
+          PatternNode(DataLambda(makePat(e, bound + x, isRhs, matchType = false)))
+        case rc.DepLambda(rct.AddressSpaceKind, x: rct.AddressSpaceIdentifier, e) =>
+          PatternNode(AddrLambda(makePat(e, bound + x, isRhs, matchType = false)))
+        case rc.DepLambda(_, _, _) => ???
+
+        case rc.App(rc.App(NamedRewriteDSL.Composition(_), f), g) =>
+          PatternNode(Composition(
+            makePat(f, bound, isRhs, matchType = true),
+            makePat(g, bound, isRhs, matchType = false)))
+
+        // note: we do not match for the type of applied functions, as we can always infer it:
+        //       app(f : et -> at, e : et) : at
+        case rc.App(f, e) =>{
+          print("\n went to app \n")
+          PatternNode(App(makePat(f, bound, isRhs, matchType = false), makePat(e, bound, isRhs)))
+        }
+        case rc.DepApp(rct.NatKind, f, x: rct.Nat) =>
+          PatternNode(NatApp(
+            makePat(f, bound, isRhs, matchType = false), makeNPat(x, bound, isRhs)))
+        case rc.DepApp(rct.DataKind, f, x: rct.DataType) =>
+          PatternNode(DataApp(
+            makePat(f, bound, isRhs, matchType = false), makeDTPat(x, bound, isRhs)))
+        case rc.DepApp(rct.AddressSpaceKind, f, x: rct.AddressSpace) =>
+          PatternNode(AddrApp(
+            makePat(f, bound, isRhs, matchType = false), makeAPat(x, bound, isRhs)))
+        case rc.DepApp(_, _, _) => ???
+
+        case rc.Literal(d) => PatternNode(Literal(d))
+        // note: we set the primitive type to a place holder here,
+        // because we do not want type information at the node level
+        case p: rc.Primitive => PatternNode(Primitive(p.setType(rct.TypePlaceholder)))
+      }, if (!isRhs && !matchType) TypePatternAny else makeTPat(expr.t, bound, isRhs))
+      }
+
+    def makeNPat(n: rct.Nat, bound: Expr.Bound, isRhs: Boolean): NatPattern =
+      n match {
+        case i: rct.NatIdentifier if freeT(rct.NatKind.IDWrapper(i)) =>
+          makePatVar(i.name, bound.nat.size, natPatVars,
+            NatPatternVar, if (isRhs) { Unknown } else { Known })
+        case i: rct.NatIdentifier =>
+          NatPatternNode(NatVar(bound.indexOf(i)))
+        case ae.Cst(c) =>
+          NatPatternNode(NatCst(c))
+        case ae.Sum(Nil) => NatPatternNode(NatCst(0))
+        case ae.Sum(t +: ts) if isRhs => ts.foldRight(makeNPat(t, bound, isRhs)) { case (t, acc) =>
+          NatPatternNode(NatAdd(makeNPat(t, bound, isRhs), acc))
+        }
+        case ae.Prod(Nil) => NatPatternNode(NatCst(1))
+        case ae.Prod(t +: ts) if isRhs => ts.foldRight(makeNPat(t, bound, isRhs)) { case (t, acc) =>
+          NatPatternNode(NatMul(makeNPat(t, bound, isRhs), acc))
+        }
+        case ae.Pow(b, e) if isRhs =>
+          NatPatternNode(NatPow(makeNPat(b, bound, isRhs), makeNPat(e, bound, isRhs)))
+        // do not match over these nat constructs on the left-hand side,
+        // as structural matching would not be sufficient,
+        // try to pivot the equality around a fresh pattern variable instead
+        case ae.Sum(_) | ae.Prod(_) | ae.Pow(_, _) if !isRhs =>
+          val nv = rct.NatIdentifier(s"_nv${natsToPivot.size}")
+          val pv = makePatVar(nv.name, bound.nat.size, natPatVars, NatPatternVar, Known)
+          natsToPivot.addOne((n, nv, bound.nat.size, pv))
+          pv
+        case _ =>
+          throw new Exception(s"did not expect $n")
+      }
+
+    def makeDTPat(dt: rct.DataType, bound: Expr.Bound, isRhs: Boolean): DataTypePattern =
+      { print(s"\n datatype = $dt \n")
+        dt match {
+        case i: rcdt.DataTypeIdentifier if freeT(IDWrapper(i)) =>{
+          print(s"\ni is free\n")
+          makePatVar(i.name, (bound.nat.size, bound.data.size),
+            dataTypePatVars, DataTypePatternVar, if (isRhs) { Unknown } else { Known })
+        }
+        case i: rcdt.DataTypeIdentifier => {
+          print(s"\ni is not free\n")
+          DataTypePatternNode(DataTypeVar(bound.indexOf(i)))
+        }
+        case s: rcdt.ScalarType =>
+          DataTypePatternNode(ScalarType(s))
+        case rcdt.NatType =>
+          DataTypePatternNode(NatType)
+        case rcdt.VectorType(s, et) =>
+          DataTypePatternNode(VectorType(makeNPat(s, bound, isRhs), makeDTPat(et, bound, isRhs)))
+        case rcdt.IndexType(s) =>
+          DataTypePatternNode(IndexType(makeNPat(s, bound, isRhs)))
+        case rcdt.PairType(dt1, dt2) =>
+          DataTypePatternNode(PairType(makeDTPat(dt1, bound, isRhs), makeDTPat(dt2, bound, isRhs)))
+        case rcdt.ArrayType(s, et) =>
+          DataTypePatternNode(ArrayType(makeNPat(s, bound, isRhs), makeDTPat(et, bound, isRhs)))
+        case _: rcdt.DepArrayType | _: rcdt.DepPairType[_, _] |
+             _: rcdt.NatToDataApply | _: rcdt.FragmentType =>
+          throw new Exception(s"did not expect $dt")
+      }
+      }
+
+    def makeTPat(t: rct.ExprType, bound: Expr.Bound, isRhs: Boolean): TypePattern =
+      { print(s"\n type = $t \n")
+        t match {
+        case dt: rct.DataType => makeDTPat(dt, bound, isRhs)
+        case rct.FunType(a, b) =>
+          TypePatternNode(FunType(makeTPat(a, bound, isRhs), makeTPat(b, bound, isRhs)))
+        case rct.DepFunType(rct.NatKind, x: rct.NatIdentifier, t) =>
+          TypePatternNode(NatFunType(makeTPat(t, bound + x, isRhs)))
+        case rct.DepFunType(rct.DataKind, x: rcdt.DataTypeIdentifier, t) =>
+          TypePatternNode(DataFunType(makeTPat(t, bound + x, isRhs)))
+        case rct.DepFunType(rct.AddressSpaceKind, x: rct.AddressSpaceIdentifier, t) =>
+          TypePatternNode(AddrFunType(makeTPat(t, bound + x, isRhs)))
+        case rct.DepFunType(_, _, _) => ???
+        case i: rct.TypeIdentifier =>
+          assert(freeT(rct.TypeKind.IDWrapper(i)))
+          makePatVar(i.name, (bound.nat.size, bound.data.size),
+            typePatVars, TypePatternVar, if (isRhs) { Unknown } else { Known })
+        case rct.TypePlaceholder =>
+          throw new Exception(s"did not expect $t, something was not infered")
+        }
+      }
+
+    def makeAPat(a: rct.AddressSpace, bound: Expr.Bound, isRhs: Boolean): AddressPattern =
+      a match {
+        case i: rct.AddressSpaceIdentifier if freeT(rct.AddressSpaceKind.IDWrapper(i)) =>
+          makePatVar(i.name, bound.addr.size, addrPatVars,
+            AddressPatternVar, if (isRhs) { Unknown } else { Known })
+        case i: rct.AddressSpaceIdentifier =>
+          AddressPatternNode(AddressVar(bound.indexOf(i)))
+        case rct.AddressSpace.Global => AddressPatternNode(Global)
+        case rct.AddressSpace.Local => AddressPatternNode(Local)
+        case rct.AddressSpace.Private => AddressPatternNode(Private)
+        case rct.AddressSpace.Constant => AddressPatternNode(Constant)
+      }
+
+    val lhsPat = makePat(typedLhs, Expr.Bound.empty, isRhs = false)
+    val rhsPat = makePat(typedRhs, Expr.Bound.empty, isRhs = true)
+    (lhsPat, rhsPat)
   }
 }
 

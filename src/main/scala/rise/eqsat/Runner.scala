@@ -235,6 +235,138 @@ class Runner(var iterations: Vec[Iteration],
       memStats = memStats1 max memStats3
     )
   }
+
+  private def sRunOne(egraph: EGraph,
+                     roots: Seq[EClassId],
+                     filter: Predicate,
+                     strategies: Seq[ElevateEqsat.NamedStrategyS]): Iteration = {
+    val time0 = System.nanoTime()
+    val i = iterations.size
+
+    val applied = HashMap.empty[String, Int]
+    def updateApplied(name: String, newlyApplied: Int): Unit = {
+      if (newlyApplied > 0) {
+        applied.updateWith(name) {
+          case Some(count) => Some(count + newlyApplied)
+          case None => Some(newlyApplied)
+        }
+      }
+    }
+    val matches = strategies.map { s =>
+      //scheduler.searchRewrite(i, egraph, shc, r)
+      val newlyApplied = ElevateEqsat.s_apply(egraph, s.strat).size // we consider this scheduler very simple
+      updateApplied(s.name, newlyApplied)
+    }
+
+    val memStats1 = util.memStats()
+    val time2 = System.nanoTime()
+
+    /* it is very dumb to do it this way and not even take this into account
+
+    val applied = HashMap.empty[String, Int]
+    def updateApplied(name: String, newlyApplied: Int): Unit = {
+      if (newlyApplied > 0) {
+        applied.updateWith(name) {
+          case Some(count) => Some(count + newlyApplied)
+          case None => Some(newlyApplied)
+        }
+      }
+    }
+    */
+    /*
+    strategies.zip(matches).foreach { case (s, ms) =>
+      // TODO: extract Substs as proper maps or vecmaps during rewrite application?
+      //  for faster access and local inserts
+      // here i should return the number of applications.
+      val newlyApplied = scheduler.applyRewrite(i, egraph, shc, s)(ms)
+      updateApplied(s.name, newlyApplied)
+    }
+    */
+    val time1 = time2 // hard for me to separate these two phases
+
+    val nRebuilds = egraph.rebuild(roots, filter)
+
+    val memStats3 = util.memStats()
+    val time3 = System.nanoTime()
+
+    new Iteration(
+      egraphNodes = egraph.nodeCount(),
+      egraphClasses = egraph.classCount(),
+      memoSize = egraph.memo.size,
+      applied = applied,
+      searchTime = time1 - time0,
+      applyTime = time2 - time1,
+      rebuildTime = time3 - time2,
+      totalTime = time3 - time0,
+      nRebuilds = nRebuilds,
+      memStats = memStats1 max memStats3
+    )
+  }
+
+  def srun(egraph: EGraph,
+          filter: Predicate,
+          strategies: Seq[ElevateEqsat.NamedStrategyS],
+          roots: Seq[EClassId]): Runner = {
+    egraph.rebuild(roots)
+    egraph.requireAnalyses(filter.requiredAnalyses())
+    strategies.foreach(s => egraph.requireAnalyses((Set(), Set()))) // unsure here
+
+    val iteration0 = new Iteration(
+      egraphNodes = egraph.nodeCount(),
+      egraphClasses = egraph.classCount(),
+      memoSize = egraph.memo.size,
+      applied = HashMap.empty,
+      searchTime = 0,
+      applyTime = 0,
+      rebuildTime = 0,
+      totalTime = 0,
+      nRebuilds = 0,
+      memStats = util.memStats()
+    )
+    // println(iteration0)
+    iterations += iteration0
+
+    def end(): Runner = {
+      // println(s"nodes removed by directed rewriting: $totalRemoved")
+      egraph.releaseAnalyses(filter.requiredAnalyses())
+      strategies.foreach(s => egraph.releaseAnalyses((Set(), Set())))
+      this
+    }
+
+    val startTime = System.nanoTime()
+    while (true) {
+      if (done(this)) { // TODO: record runtime of 'done' in Iteration
+        stopReasons += Done
+      }
+      if (stopReasons.nonEmpty) { return end() }
+
+      val iter = sRunOne(egraph, roots, filter, strategies)
+      // println(iter)
+
+      if (iter.applied.isEmpty &&
+        scheduler.canSaturate(iterations.size)) {
+        stopReasons += Saturated
+      }
+
+      iterations += iter
+
+      val elapsed = System.nanoTime() - startTime
+      if (elapsed > timeLimit) {
+        stopReasons += TimeLimit(elapsed)
+      }
+      if (iter.memStats.used > memoryLimit) {
+        stopReasons += MemoryLimit(iter.memStats.used)
+      }
+      if (iter.egraphNodes > nodeLimit) {
+        stopReasons += NodeLimit(iter.egraphNodes)
+      }
+      if (iterationCount() >= iterLimit) {
+        stopReasons += IterationLimit(iterationCount())
+      }
+    }
+
+    end()
+  }
 }
 
 class Iteration(val egraphNodes: Int,
