@@ -150,6 +150,33 @@ sealed trait TypeNode[+T, +N, +DT] {
       case dt: DataTypeNode[N, DT] => dt.map(fn, fdt)
     }
 
+  def types() : Iterator[T] = this match {
+    case FunType(a, b) => Iterator(a,b);
+    case NatFunType(t) => Iterator(t);
+    case DataFunType(t) => Iterator(t);
+    case AddrFunType(t) => Iterator(t);
+    case _ => Iterator();
+  }
+
+  def nats() : Iterator[N] = this match {
+    case dt: DataTypeNode[N, DT] => dt.asInstanceOf[DataTypeNode[N, DT]].nats();
+    case _ => Iterator();
+  }
+
+  def dataTypes() : Iterator[DT] = this match {
+    case dt: DataTypeNode[N, DT] => dt.asInstanceOf[DataTypeNode[N, DT]].dataTypes();
+    case _ => Iterator();
+  }
+
+  def matches(other: TypeNode[_, _, _]): Boolean = (this, other) match {
+    case (FunType(_,_), FunType(_,_)) => true;
+    case (NatFunType(_), NatFunType(_)) => true;
+    case (DataFunType(_), DataFunType(_)) => true;
+    case (AddrFunType(_), AddrFunType(_)) => true;
+    case (dt1: DataTypeNode[N, DT], dt2: DataTypeNode[_, _]) => dt1.asInstanceOf[DataTypeNode[N, DT]].matches(dt2);
+    case _ => false 
+  }
+
   final def childrenCount(): Int = {
     var c = 0
     map(_ => c += 1, _ => c += 1, _ => c += 1)
@@ -183,14 +210,14 @@ sealed trait DataTypeNode[+N, +DT] extends TypeNode[Nothing, N, DT] {
       case ArrayType(s, dt) => ArrayType(fn(s), fdt(dt))
     }
   
-  def dataTypes(): Iterator[DT] = this match {
+  override def dataTypes(): Iterator[DT] = this match {
     case VectorType(_, dt) => Iterator(dt);
     case PairType(dt1, dt2) => Iterator(dt1, dt2);
     case ArrayType(_, dt) => Iterator(dt);
     case _ => Iterator(); 
   }
 
-  def nats(): Iterator[N] = this match {
+  override def nats(): Iterator[N] = this match {
     case VectorType(n,_) => Iterator(n);
     case IndexType(n) => Iterator(n);
     case ArrayType(n, _) => Iterator(n);

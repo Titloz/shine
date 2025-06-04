@@ -342,6 +342,7 @@ object ElevateEqsat {
         s
     }
 
+/*
     def srec_call(eg: EGraph, shc: Substitutions, pis: List[Pattern], tis: List[STerm])(l: List[shc.Substitution]): List[shc.Substitution] = 
     (pis, tis) match {
         case (Nil, Nil) => l;
@@ -349,8 +350,9 @@ object ElevateEqsat {
         case (_, Nil) => ???;
         case (pi::pjs, ti::tjs) => srec_call(eg, shc, pjs, tjs)(smatching_aux(eg,pi,shc,ti)(l));
     }
+*/
 
-    def smatching_aux(eg: EGraph, pat: Pattern, shc: Substitutions, t: STerm)(S: List[shc.Substitution]) : List[shc.Substitution] =
+    def smatching_aux(eg: EGraph, sg: SGraph, pat: Pattern, shc: Substitutions, t: STerm)(S: List[shc.Substitution]) : List[shc.Substitution] =
     pat.p match { //pat.p
         case x: PatternVar => {
             t match {
@@ -417,16 +419,43 @@ object ElevateEqsat {
                         }
                         s
                     } else { // node has >= 1 children
-                        var set : scala.collection.mutable.Set[shc.Substitution] = scala.collection.mutable.Set() 
+                        var res : List[shc.Substitution] = Nil
                         eg.get(i).nodes.foreach { // for every f(t1,...,tn) \in class(t) :
                             case n => if (n.matches(node)) {
-                                val pis = node.children().toList 
-                                val tis_aux = n.children().toList
-                                val tis = tis_aux.map(x => Ec(x))
-                                set ++= stoset(shc)(srec_call(eg, shc, pis, tis)(S)) 
+                                val node_terms = node.children().toList 
+                                val n_terms = n.children().toList.map(x => Ec(x))
+                                /*val node_types = node.types().toList 
+                                val n_types = n.types().toList */
+                                val node_nats = node.nats().toList 
+                                val n_nats = n.nats().toList 
+                                val node_dts = node.dataTypes().toList 
+                                val n_dts = n.dataTypes().toList 
+                                val node_addr = node.addresses().toList 
+                                val n_addr = n.addresses().toList 
+                                val terms = node_terms.zip(n_terms)
+                                //val types = node_types.zip(n_types)
+                                val nats = node_nats.zip(n_nats)
+                                val dts = node_dts.zip(n_dts)
+                                val addr = node_addr.zip(n_addr)
+                                val res_terms = terms.foldLeft(S)((substs, pair) => pair match {
+                                    case (pattern, id) => smatching_aux(eg, sg, pattern, shc, id)(substs)
+                                })
+                                //val res_types = types.foldLeft(S)((substs, pair) => pair match {
+                                //    case (pattern, id) => smatching_type(eg, sg, pattern, shc, id)(substs)
+                                //})
+                                val res_nats = nats.foldLeft(res_terms)((substs, pair) => pair match {
+                                    case (pattern, id) => smatching_nat(eg, sg, pattern, shc, id)(substs)
+                                })
+                                val res_data = dts.foldLeft(res_nats)((substs, pair) => pair match {
+                                    case (pattern, id) => smatching_data(eg, sg, pattern, shc, id)(substs)
+                                })
+                                val res_address = addr.foldLeft(res_data)((substs, pair) => pair match {
+                                    case (pattern, id) => smatching_address(eg, sg, pattern, shc, id)(substs)
+                                })
+                                res = stolist(shc)(stoset(shc)(res_address)) // avoid doublons
                             }
                         }
-                        stolist(shc)(set) // avoid doublons
+                        res
                     }
                 };
                 case Snode(n) => {
@@ -437,14 +466,48 @@ object ElevateEqsat {
                         }
                         s
                     } else { // node has >= 1 children
-                        var set : scala.collection.mutable.Set[shc.Substitution] = scala.collection.mutable.Set() 
+                        //var set : scala.collection.mutable.Set[shc.Substitution] = scala.collection.mutable.Set() 
+                        var res : List[shc.Substitution] = Nil
                         if (n.matches(node)) { // no need to iterate here: only one node in the sterm
+                                /*
                                 val pis = node.children().toList // .map(x => x.p)
                                 val tis = n.children().toList
                                 //
                                 set = stoset(shc)(srec_call(eg, shc, pis, tis)(S)) // i must change rec_call
+                                */
+                                val node_terms = node.children().toList 
+                                val n_terms = n.children().toList //.map(x => Ec(x))
+                                //val node_types = node.types().toList 
+                                //val n_types = n.types().toList 
+                                val node_nats = node.nats().toList 
+                                val n_nats = n.nats().toList 
+                                val node_dts = node.dataTypes().toList 
+                                val n_dts = n.dataTypes().toList 
+                                val node_addr = node.addresses().toList 
+                                val n_addr = n.addresses().toList 
+                                val terms = node_terms.zip(n_terms)
+                                //val types = node_types.zip(n_types)
+                                val nats = node_nats.zip(n_nats)
+                                val dts = node_dts.zip(n_dts)
+                                val addr = node_addr.zip(n_addr)
+                                val res_terms = terms.foldLeft(S)((substs, pair) => pair match {
+                                    case (pattern, id) => smatching_aux(eg, sg, pattern, shc, id)(substs)
+                                })
+                                //val res_types = types.foldLeft(res_terms)((substs, pair) => pair match {
+                                //    case (pattern, id) => smatching_type(eg, sg, pattern, shc, id)(substs)
+                                //})
+                                val res_nats = nats.foldLeft(res_terms)((substs, pair) => pair match {
+                                    case (pattern, id) => smatching_nat(eg, sg, pattern, shc, id)(substs)
+                                })
+                                val res_data = dts.foldLeft(res_nats)((substs, pair) => pair match {
+                                    case (pattern, id) => smatching_data(eg, sg, pattern, shc, id)(substs)
+                                })
+                                val res_address = addr.foldLeft(res_data)((substs, pair) => pair match {
+                                    case (pattern, id) => smatching_address(eg, sg, pattern, shc, id)(substs)
+                                })
+                                res = stolist(shc)(stoset(shc)(res_address)) // avoid doublons
                         }
-                        stolist(shc)(set) // avoid doublons
+                        res 
                     }
                 };
             }
@@ -527,9 +590,27 @@ object ElevateEqsat {
         };
         case TypePatternNode(n) => {
             var res : List[shc.Substitution] = Nil
-            val node = sg.apply(dt)
+            val node = sg.apply(t)
             if (n.matches(node)) {
-                ???
+                val n_types = n.types().toList 
+                val node_types = node.types().toList 
+                val n_nats = n.nats().toList 
+                val node_nats = node.nats().toList 
+                val n_dts = n.dataTypes().toList 
+                val node_dts = node.dataTypes().toList 
+                val types = n_types.zip(node_types)
+                val nats = n_nats.zip(node_nats)
+                val dts = n_dts.zip(node_dts)
+                val res_types = types.foldLeft(S)((substs, pair) => pair match {
+                    case (pattern, id) => smatching_type(eg, sg, pattern, shc, id)(substs)
+                })
+                val res_nats = nats.foldLeft(res_types)((substs, pair) => pair match {
+                    case (pattern, id) => smatching_nat(eg, sg, pattern, shc, id)(substs)
+                })
+                val res_data = dts.foldLeft(res_nats)((substs, pair) => pair match {
+                    case (pattern, id) => smatching_data(eg, sg, pattern, shc, id)(substs)
+                })
+                res = stolist(shc)(stoset(shc)(res_data)) // avoid doublons
             }
             res
         };
@@ -537,94 +618,29 @@ object ElevateEqsat {
         case dt: DataTypePattern => smatching_data(eg, sg, dt, shc, t.asInstanceOf[DataTypeId])(S);
     }
 
-    /*
-    def smatching_aux2(eg: EGraph, pat: Pattern, shc: Substitutions, t: STerm)(S: List[shc.Substitution]) : List[shc.Substitution] = {
-        def unknownBehavior[T](): T = throw new Exception("unknown behavior here")
-        def patt(pattern: Pattern) : List[shc.Substitution] = pattern.p match {
-            case w: PatternVar => ???;
-            case PatternNode(node) => ???;
-        }
-
-        def nat(subst: shc.Substitution, p: NatPattern): shc.Substitution = p match {
-            case w: NatPatternVar => t match {
-                case Ec(i) => {
-                    val enode = eg.get(i).nodes(0)
-                    ???
-                    //val (canonicalized, ec) = eg.lookup(enode,???)
-                    //shc.insert(w, canonicalized._2, subst)
-                };
-                case Snode(n) => ??? //shc.insert(p, n._2, subst);
-            };
-            case NatPatternNode(n) => {
-                ??? // for every child give them nat(subst), it gives back subst_1, ..., subst_n and union them if possible 
-                // otherwise raise error
-            };
-            case NatPatternAny => unknownBehavior();
-        }
-
-        def data(pat: DataTypePattern, subst: shc.Substitution): shc.Substitution = pat match {
-            case w: DataTypePatternVar => /*t match {
-                case Ec(i) => {
-                    val enode = eg.get(i).nodes(0)
-                    ???//val (canonicalized, ec) = eg.lookup(enode,???)
-                    //shc.insert(w, canonicalized._3, subst)
-                };
-                case Snode(n) => ??? //shc.insert(pat, n._3, subst);
-            }*/;
-            case DataTypePatternNode(n) => ???;
-            case DataTypePatternAny => unknownBehavior();
-        }
-
-        def `type`(pat: TypePattern, subst: shc.Substitution): shc.Substitution = pat match {
-            case w: TypePatternVar => t match {
-                case Ec(i) => {
-                    val t = eg.get(i).t
-                }; 
-                case Snode(n) => ???;
-            };
-            case TypePatternNode(n) => ???;
-            case TypePatternAny => subst;
-            case dtp: DataTypePattern => data(dtp, subst);
-        }
-
-        def addr(pat: AddressPattern, subst: shc.Substitution): shc.Substitution = pat match {
-            case w: AddressPatternVar => t match {
-                case Ec(i) => {
-                    val enode = eg.get(i).nodes(0)
-                    ???//val (canonicalized, ec) = eg.lookup(enode,???)
-                    //shc.insert(w, canonicalized._4, subst)
-                };
-                case Snode(n) => ??? //shc.insert(p, n._4, subst);
-            };
-            case AddressPatternNode(n) => ???;
-            case AddressPatternAny => unknownBehavior();
-        }
-        ???
-    }
-    */
-
-
+    def smatching_address(eg: EGraph, sg: SGraph, pat: AddressPattern, shc: Substitutions, t: Address)(S: List[shc.Substitution]) : List[shc.Substitution] =
+        S // TO MODIFY
 
     case class SMatches(spair: SPair, substs: List[SubstitutionsVM.Substitution])
 
-    def treat_worklist(eg: EGraph, p: Pattern, worklist: List[SPair], aux: List[SMatches]) : List[SMatches] = {
+    def treat_worklist(eg: EGraph, sg: SGraph, p: Pattern, worklist: List[SPair], aux: List[SMatches]) : List[SMatches] = {
         val shc = SubstitutionsVM
         worklist match {
             case Nil => aux;
             case head :: next => {
-                val substs = (smatching_aux(eg, p, shc, head.sterm)(SubstitutionVM.empty :: Nil))
+                val substs = (smatching_aux(eg, sg, p, shc, head.sterm)(SubstitutionVM.empty :: Nil))
                 if (substs != Nil) {
-                    treat_worklist(eg, p, next, SMatches(head,substs)::aux)
+                    treat_worklist(eg, sg, p, next, SMatches(head,substs)::aux)
                 } else { // if we don't match any substitution, why bother?
-                    treat_worklist(eg, p, next, aux)
+                    treat_worklist(eg, sg, p, next, aux)
                 }
             };
                 //treat_worklist(eg, p, next, aux ::: (smatching_aux(eg, p, shc, head.sterm)(SubstitutionVM.empty :: Nil)));
         }
     }
 
-    def classical_smatching(eg: EGraph, p: Pattern, worklist: List[SPair]) : List[SMatches] = {
-        treat_worklist(eg,p,worklist,Nil)
+    def classical_smatching(eg: EGraph, sg: SGraph, p: Pattern, worklist: List[SPair]) : List[SMatches] = {
+        treat_worklist(eg, sg, p, worklist, Nil)
     }
 
     def delta_lists(l1: List[SPair], l2: List[SPair]) : List[SPair] = 
@@ -729,7 +745,7 @@ object ElevateEqsat {
             print(s"\n lhs type: ${lhs.t} \n")
             print(s"\n rhs pattern: ${rhs.p} \n")
             print(s"\n rhs type: ${rhs.t} \n")
-            val matches = classical_smatching(eg, lhs, worklist)
+            val matches = classical_smatching(eg, sg, lhs, worklist)
             print(s"\n nb matches: ${matches.size} \n")
             s_apply_all(sg, rhs, matches)
         };
@@ -794,6 +810,7 @@ object ElevateEqsat {
         // it is bad,
         // i do it for every eclassid instead of just choosing one eclassid per eclass!
         val sg = SGraph.empty()
+        // instead of an empty sgraph, i must have a copy of the hashconses from the egraph (as well as the types?)
         val endlist = s_apply_aux(eg, sg, s, worklist)
         // starting from endlist, determine which enodes should be added to the egraph
         // & add them bottom-up for efficiency reasons
