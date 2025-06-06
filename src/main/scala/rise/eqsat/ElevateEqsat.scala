@@ -161,6 +161,8 @@ object ElevateEqsat {
             case LeftChoice(s1, s2) => s"$s1<+$s2";
         }
 
+        def to_strat(): StrategyS = strat
+
         // def boundVars()
     }
     /*
