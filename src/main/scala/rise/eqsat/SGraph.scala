@@ -10,6 +10,28 @@ object SGraph {
         hashConses = HashConses.empty(),
         // nodes = Vec.empty[STerm],
     )
+
+    def fromEGraph(eg: EGraph) : SGraph = {
+        val new_types : HashMap[ElevateEqsat.STerm, TypeId] = eg.classes.map{case (k, v) => (ElevateEqsat.Ec(k), v.t)}
+        val nats_memo = eg.hashConses.nats.memo.clone()
+        val nats_nodes = eg.hashConses.nats.nodes.clone()
+        val dataTypes_memo = eg.hashConses.dataTypes.memo.clone()
+        val dataTypes_nodes = eg.hashConses.dataTypes.nodes.clone()
+        val types_memo = eg.hashConses.types.memo.clone()
+        val types_nodes = eg.hashConses.types.nodes.clone()
+        val nats = new HashCons(nats_memo, nats_nodes)
+        val dataTypes = new HashCons(dataTypes_memo, dataTypes_nodes)
+        val types = new HashCons(types_memo, types_nodes)
+        val new_hashconses = HashConses(
+            nats = nats,
+            dataTypes = dataTypes,
+            types = types
+        )
+        new SGraph(
+            node_types = new_types,
+            hashConses = new_hashconses,
+        )
+    }
 }
 
 class SGraph(

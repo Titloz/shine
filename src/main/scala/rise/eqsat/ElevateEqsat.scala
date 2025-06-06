@@ -520,14 +520,16 @@ object ElevateEqsat {
         S // TO MODIFY
 
     def smatching_data(eg: EGraph, sg: SGraph, pat: DataTypePattern, shc: Substitutions, dt: DataTypeId)(S: List[shc.Substitution]) : List[shc.Substitution] = {
-    print("\n smatching data \n")
+    print(s"\n smatching data ${dt} with pattern $pat\n")
     pat match {
         case w: DataTypePatternVar => {
+            print("\n datatype var\n")
             var s : List[shc.Substitution] = Nil
             S.foreach {
                 case beta => {
                     try { 
                         val v = shc.get(w, beta) // index is in dom(beta)
+                        print("ca passe ca???")
                         // val id = sg.add_children(dt)
                         if (v == dt) {
                             s = beta :: s 
@@ -541,9 +543,11 @@ object ElevateEqsat {
                     }
                 };
             }
+            print(s"\n s = $s\n")
             s
         };
         case DataTypePatternNode(n) => {
+            print("\n datatype node\n")
             var res : List[shc.Substitution] = Nil
             val node = sg.apply(dt)
             if (n.matches(node)) {
@@ -563,14 +567,18 @@ object ElevateEqsat {
             }
             res
         };
-        case DataTypePatternAny => S;
+        case DataTypePatternAny => {
+            print("\n datatype any\n")
+            S
+        };
     }
     }
 
     def smatching_type(eg: EGraph, sg: SGraph, pat: TypePattern, shc: Substitutions, t: TypeId)(S: List[shc.Substitution]) : List[shc.Substitution] = {
-        print("\n smatching type \n")
+        print(s"\n smatching type ${t} with pattern $pat\n")
         pat match {
         case w : TypePatternVar => {
+            print("\n type var\n")
             var s : List[shc.Substitution] = Nil
             S.foreach {
                 case beta => {
@@ -592,6 +600,7 @@ object ElevateEqsat {
             s
         };
         case TypePatternNode(n) => {
+            print("\n type node\n")
             var res : List[shc.Substitution] = Nil
             val node = sg.apply(t)
             if (n.matches(node)) {
@@ -617,8 +626,14 @@ object ElevateEqsat {
             }
             res
         };
-        case TypePatternAny => S;
-        case dt: DataTypePattern => smatching_data(eg, sg, dt, shc, t.asInstanceOf[DataTypeId])(S);
+        case TypePatternAny => {
+            print("\n type any\n")
+            S
+        };
+        case dt: DataTypePattern => t match {
+            case DataTypeId(_) => smatching_data(eg, sg, dt, shc, t.asInstanceOf[DataTypeId])(S);
+            case NotDataTypeId(_) => Nil
+        };
     }
     }
 
@@ -628,17 +643,26 @@ object ElevateEqsat {
     case class SMatches(spair: SPair, substs: List[SubstitutionsVM.Substitution])
 
     def treat_worklist(eg: EGraph, sg: SGraph, p: Pattern, worklist: List[SPair], aux: List[SMatches]) : List[SMatches] = {
+        print(s"\n treat_worklist \n")
         val shc = SubstitutionsVM
         worklist match {
-            case Nil => aux;
+            case Nil => {
+                print(s"\n aux = $aux \n")
+                aux
+            };
             case head :: next => {
                 val substs = (smatching_aux(eg, sg, p, shc, head.sterm)(SubstitutionVM.empty :: Nil))
-                val typed_substs = sg.get_type_of(head.sterm) match {
-                    case None => substs;
-                    case Some(t) => (smatching_type(eg, sg, p.t, shc, t)(substs))
-                }
-                if (typed_substs != Nil) {
-                    treat_worklist(eg, sg, p, next, SMatches(head,substs)::aux)
+                if (substs != Nil) {
+                    print(s"\n sterm: ${head.sterm} \n")
+                    val typed_substs = sg.get_type_of(head.sterm) match {
+                        case None => substs;
+                        case Some(t) => (smatching_type(eg, sg, p.t, shc, t)(substs))
+                    }
+                    if (typed_substs != Nil) {
+                        treat_worklist(eg, sg, p, next, SMatches(head,typed_substs)::aux)
+                    } else { // if we don't match any substitution, why bother?
+                        treat_worklist(eg, sg, p, next, aux)
+                    }
                 } else { // if we don't match any substitution, why bother?
                     treat_worklist(eg, sg, p, next, aux)
                 }
@@ -817,7 +841,7 @@ object ElevateEqsat {
         val worklist = eg.classes.map{case (index, eclass) => (index, Ec(index))}.toList.map{case (x,y) => SPair(x,y)} 
         // it is bad,
         // i do it for every eclassid instead of just choosing one eclassid per eclass!
-        val sg = SGraph.empty()
+        val sg = SGraph.fromEGraph(eg)
         // instead of an empty sgraph, i must have a copy of the hashconses from the egraph (as well as the types)
         val endlist = s_apply_aux(eg, sg, s, worklist)
         // starting from endlist, determine which enodes should be added to the egraph
