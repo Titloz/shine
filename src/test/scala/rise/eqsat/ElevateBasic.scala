@@ -141,7 +141,7 @@ class ElevateBasic extends test_util.Tests {
         /*import rise.core.DSL._
         import rise.core.DSL.Type._
         import rise.core.primitives._*/
-         import ExprDSL._
+        import ExprDSL._
         import SProveEquiv.syntax._
 
         SProveEquiv.init().run(
@@ -150,5 +150,40 @@ class ElevateBasic extends test_util.Tests {
             Seq(strategies.plusComm)
         )
         
+    }
+
+    test("srun basic, id_plusComm"){
+        import ExprDSL._
+        import SProveEquiv.syntax._
+
+        SProveEquiv.init().run(
+            one(app(app(add(f32 ->: f32 ->: f32), %(0, f32)), %(1, f32))),
+            one(app(app(add(f32 ->: f32 ->: f32), %(1, f32)), %(0, f32))),
+            Seq(strategies.plusComm_idplusComm)
+        )
+    }
+
+    test("srun basic, skip"){
+        import ExprDSL._
+        import SProveEquiv.syntax._
+
+        SProveEquiv.init().run(
+            one(app(app(add(f32 ->: f32 ->: f32), %(0, f32)), %(1, f32))),
+            one(app(app(add(f32 ->: f32 ->: f32), %(1, f32)), %(0, f32))),
+            Seq(strategies.plusComm_skip)
+        )
+    }
+
+    test("srun, left choice"){
+        import rise.core.semantics._
+        import ExprDSL._
+        import SProveEquiv.syntax._
+        
+        val zero : Float = 0.0F
+        SProveEquiv.init().run(
+            one(app(app(mul(f32 ->: f32 ->: f32), app(app(add(f32 ->: f32 ->: f32), %(0, f32)), %(1, f32))), l(FloatData(zero)))),
+            one(l(FloatData(zero))),
+            Seq(strategies.lc_plusComm_timesZero)
+        )
     }
 }
