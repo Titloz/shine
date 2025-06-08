@@ -69,14 +69,14 @@ object strategies {
       LeftChoice(plusComm.to_strat(), timesZero.to_strat()))
 
     def `try`(s : StrategyS) : StrategyS = {
-      ComposeSeq(s, Skip)
+      LeftChoice(s, Skip)
     }
 
     def repeat(s: StrategyS, n: Int) : StrategyS = {
       if (n == 0){
         `try`(s)
       } else {
-        `try`(s, repeat(s, n-1))
+        `try`(ComposeSeq(s, repeat(s, n-1)))
       }
     }
 
