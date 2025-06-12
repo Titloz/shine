@@ -86,6 +86,22 @@ sealed trait NatNode[+N] {
     case NatIntDiv(a, b) => Iterator(a, b)
   }
   def natCount(): Int = nats().size
+
+  // matches here seem very restrictive as we could of course have 2*3=6 therefore NatCst(6) = NatMul(NatCst(2),NatCst(3))
+  // but they do not match
+  // i should simplify instead
+  def matches(other: NatNode[_]) : Boolean = (this, other) match {
+    case (NatVar(i), NatVar(j)) => i == j;
+    case (NatCst(c1), NatCst(c2)) => c1 == c2;
+    case (NatPosInf, NatPosInf) => true;
+    case (NatNegInf, NatNegInf) => true;
+    case (NatAdd(_,_), NatAdd(_,_)) => true;
+    case (NatMul(_,_), NatMul(_,_)) => true;
+    case (NatPow(_,_), NatPow(_,_)) => true;
+    case (NatMod(_,_), NatMod(_,_)) => true;
+    case (NatIntDiv(_,_), NatIntDiv(_,_)) => true;
+    case _ => false;
+  }
 }
 case class NatVar(index: Int) extends NatNode[Nothing] {
   override def toString: String = s"%n$index"

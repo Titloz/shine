@@ -73,11 +73,41 @@ object strategies {
     }
 
     def repeat(s: StrategyS, n: Int) : StrategyS = {
-      if (n == 0){
+      if (n <= 0){
         `try`(s)
       } else {
         `try`(ComposeSeq(s, repeat(s, n-1)))
       }
     }
 
+    def cond(s: StrategyS, cond: Boolean) : StrategyS = {
+      if (cond) {
+        s
+      } else {
+        Abort
+      }
+    }
+
+    def topDown(s: StrategyS, n: Int) : StrategyS = {
+      if (n <= 0) {
+        s
+      } else {
+        LeftChoice(s, One(topDown(s, n-1)))
+      }
+    }
+
+    def bottomUp(s: StrategyS, n: Int) : StrategyS = {
+      if (n <= 0) {
+        s
+      } else {
+        LeftChoice(One(bottomUp(s, n-1)), s)
+      }
+    }
+
+    def normalise(s: StrategyS, n: Int) : StrategyS = {
+      repeat(topDown(s, n), n)
+    }
+
+    def beta_red() =  // app((lambda x. u), v) --> u[x:=v]
+      ???
 }

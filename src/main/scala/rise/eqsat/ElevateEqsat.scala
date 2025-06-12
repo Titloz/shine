@@ -144,6 +144,8 @@ object ElevateEqsat {
     case class RewriteRule(rw: SRewrite) extends StrategyS // Rewrite ~~ (String, (Searcher,Applier)) , shc: Substs
     case class ComposeSeq(s1: StrategyS, s2: StrategyS) extends StrategyS
     case class LeftChoice(s1: StrategyS, s2: StrategyS) extends StrategyS
+    case class One(s: StrategyS) extends StrategyS 
+    case class All(s: StrategyS) extends StrategyS
 
 
     object NamedStrategyS {
@@ -159,6 +161,8 @@ object ElevateEqsat {
             case RewriteRule(rw) => s" ${rw.lhs} --> ${rw.rhs} ";
             case ComposeSeq(s1, s2) => s"$s1;$s2";
             case LeftChoice(s1, s2) => s"$s1<+$s2";
+            case One(s) => s"one($s)";
+            case All(s) => s"all($s)";
         }
 
         def to_strat(): StrategyS = strat
@@ -206,6 +210,8 @@ object ElevateEqsat {
         case Abort => fail[Rise];
         case ComposeSeq(s1, s2) => toStrategyRise(s1) `;` toStrategyRise(s2);
         case LeftChoice(s1, s2) => toStrategyRise(s1) <+ toStrategyRise(s2);
+        case One(s) => ???;
+        case All(s) => ???;
         /* 
         case NonDetChoice(s1, s2) => toStrategyRise(s1) <+> toStrategyRise(s2)
         case One(s) => one(s);
@@ -318,7 +324,7 @@ object ElevateEqsat {
         
     sealed trait STerm 
     case class Ec(i: EClassId) extends STerm
-    case class Snode(n: Node[STerm, NatId, DataTypeId, Address]) extends STerm // unsure about the 3 last types
+    case class Snode(n: Node[STerm, NatId, DataTypeId, Address]) extends STerm // maybe add the subst construct here?
 
     case class SPair(origin: EClassId, sterm: STerm)
 
@@ -518,8 +524,49 @@ object ElevateEqsat {
 
     // eclasses have a typeId !
 
-    def smatching_nat(eg: EGraph, sg: SGraph, pat: NatPattern, shc: Substitutions, dt: NatId)(S: List[shc.Substitution]) : List[shc.Substitution] =
-        S // TO MODIFY
+    def smatching_nat(eg: EGraph, sg: SGraph, pat: NatPattern, shc: Substitutions, nid: NatId)(S: List[shc.Substitution]) : List[shc.Substitution] = {
+        // a lot of things should be simplified here
+        // this is too restrictive : a pattern NatMul(_,_) wouldn't match a term of the form NatCst(_)...
+        print(s"\n smatching nat ${id} with pattern $pat\n")
+        pat match {
+            case w: NatPatternVar => {
+                print("\n nat var\n")
+                var s : List[shc.Substitution] = Nil
+                S.foreach {
+                    case beta => {
+                        try { 
+                            val v = shc.get(w, beta) // index is in dom(beta)
+                            if (v == nid) {
+                                s = beta :: s 
+                            }
+                        } catch { // index is not in dom(beta)
+                            case _: Throwable => {
+                                val id = shc.insert(w, nid, beta) // extend beta with index |-> t and add it to s 
+                                s = id :: s
+                            }
+                        }
+                    };
+                }
+                s
+            };
+            case NatPatternNode(n) => {
+                print("\n nat node\n")
+                var res : List[shc.Substitution] = Nil
+                val node = sg.apply(nid)
+                if (n.matches(node)) {
+                    val n_nats = n.nats().toList
+                    val node_nats = node.nats().toList 
+                    val nats = n_nats.zip(node_nats)
+                    val res_nats = nats.foldLeft(S)((substs, pair) => pair match {
+                        case (pattern, id) => smatching_nat(eg, sg, pattern, shc, id)(substs)
+                    })
+                    res = stolist(shc)(stoset(shc)(res_nats))
+                }
+                res
+            };
+            case NatPatternAny => S;
+        }
+    }
 
     def smatching_data(eg: EGraph, sg: SGraph, pat: DataTypePattern, shc: Substitutions, dt: DataTypeId)(S: List[shc.Substitution]) : List[shc.Substitution] = {
     print(s"\n smatching data ${dt} with pattern $pat\n")
@@ -639,8 +686,41 @@ object ElevateEqsat {
     }
     }
 
-    def smatching_address(eg: EGraph, sg: SGraph, pat: AddressPattern, shc: Substitutions, t: Address)(S: List[shc.Substitution]) : List[shc.Substitution] =
-        S // TO MODIFY
+    def smatching_address(eg: EGraph, sg: SGraph, pat: AddressPattern, shc: Substitutions, t: Address)(S: List[shc.Substitution]) : List[shc.Substitution] = {
+        pat match {
+            case w: AddressPatternVar => {
+                print("\n address var\n")
+                var s : List[shc.Substitution] = Nil
+                S.foreach {
+                    case beta => {
+                        try { 
+                            val v = shc.get(w, beta) // index is in dom(beta)
+                            // val id = sg.add_children(dt)
+                            if (v == t) {
+                                s = beta :: s 
+                            }
+                        } catch { // index is not in dom(beta)
+                            case _: Throwable => {
+                                val id = shc.insert(w, t, beta) // extend beta with index |-> t and add it to s 
+                                // sg.add_children(dt)
+                                s = id :: s
+                            }
+                        }
+                    };
+                }
+                s
+            };
+            case AddressPatternNode(n) => {
+                print("\n type node\n")
+                var res : List[shc.Substitution] = Nil
+                if (n.matches(t)){
+                    res = S
+                }
+                res
+            };
+            case AddressPatternAny => S;
+        }
+    }
 
     case class SMatches(spair: SPair, substs: List[SubstitutionsVM.Substitution])
 
@@ -769,6 +849,87 @@ object ElevateEqsat {
         };
     }
 
+    def lazy_map_one(eg: EGraph, sg: SGraph, s: StrategyS, listPairs: List[SPair]) : List[SPair] = 
+        // for One(s)
+        listPairs match {
+            case Nil => Nil;
+            case head :: tail => {
+                val applied = s_apply_aux(eg, SGraph.fromSGraph(sg), s, List(head)) 
+                // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                // THIS MIGHT BE WRONG, AS SGRAPH MAY BE MODIFIED BY THIS, probably just need to copy the sgraph?
+                // the graph itself might be modified... quite unsure of how to handle this
+                // i think it's ok tbh the heap of recursive calls just handle it 
+                // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+                if (applied == Nil) {
+                    lazy_map_one(eg, sg, s, tail)
+                } else {
+                    applied
+                }
+            }
+    }
+
+    def demonic_acc[A](l1 : List[A], l2: List[A]) : List[A] = (l1, l2) match {
+        case (_,Nil) => Nil;
+        case (Nil, _) => Nil
+        case _ => l1 ::: l2
+    }
+
+    def lazy_map_all(eg: EGraph, sg: SGraph, s: StrategyS, listPairs: List[SPair]) : List[SPair] =
+        // for All(s)
+        listPairs match {
+            case Nil => Nil;
+            case head :: Nil => {
+                val applied = s_apply_aux(eg, SGraph.fromSGraph(sg), s, List(head))
+                // same
+                applied
+            };
+            case head :: tail => {
+                val applied = s_apply_aux(eg, SGraph.fromSGraph(sg), s, List(head))
+                // same
+                demonic_acc(applied, lazy_map_all(eg, sg, s, tail))
+            }
+        }
+    
+    def treat_sterm_one(eg: EGraph, sg: SGraph, s: StrategyS, spair: SPair) : List[SPair] = 
+        // here, we want to apply One(s)
+        {
+        val sterm = spair.sterm
+        val origin = spair.origin 
+        sterm match {
+            case Ec(i) => Nil; //to check
+            case Snode(n) => {
+                if (n.childrenCount() == 0){
+                    Nil // to check
+                } else {
+                    val listChildren = n.children().toList.map(c => SPair(origin, c))
+                    val new_list = lazy_map_one(eg, sg, s, listChildren)
+                    new_list
+                }
+            };
+        }
+    }
+
+    def treat_sterm_all(eg: EGraph, sg: SGraph, s: StrategyS, spair: SPair) : List[SPair] = 
+        // here, we want to apply All(s): we consider eclasses as leaves 
+        {
+        val sterm = spair.sterm
+        val origin = spair.origin 
+        sterm match {
+            case Ec(i) => List(spair); // to check
+            case Snode(n) => {
+                if (n.childrenCount() == 0) {
+                    List(spair) // to check
+                } else {
+                    val listChildren = n.children().toList.map(c => SPair(origin, c))
+                    val new_list = lazy_map_all(eg, sg, s, listChildren)
+                    new_list
+                }
+            }
+        }
+    }
+
+    def without_nil[A](l: List[List[A]])
+
     def s_apply_aux(eg: EGraph, sg: SGraph, s: StrategyS, worklist: List[SPair]) : List[SPair] = s match {
         case Skip => worklist;
         case Abort => Nil;
@@ -790,6 +951,8 @@ object ElevateEqsat {
             val l2 = s_apply_aux(eg, sg, s2, worklist2)
             l1 ::: l2
         };
+        case One(st) => worklist.map(spair => treat_sterm_one(eg, sg, st, spair)).flatten;
+        case All(st) => worklist.map(spair => treat_sterm_all(eg, sg, st, spair)).flatten;
     }
 
     def listToVec[A](l : List[A]) : Vec[A] = {

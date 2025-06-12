@@ -50,7 +50,17 @@ case object AddressPatternAny extends AddressPattern {
   override def toString: String = "?a"
 }
 
-sealed trait AddressNode
+sealed trait AddressNode {
+
+  def matches(other: AddressNode): Boolean = (this, other) match {
+    case (AddressVar(i), AddressVar(j)) => i == j;
+    case (Global, Global) => true;
+    case (Local, Local) => true;
+    case (Private, Private) => true;
+    case (Constant, Constant) => true;
+    case _ => false;
+  }
+}
 case class AddressVar(index: Int) extends AddressNode {
   override def toString: String = s"%a$index"
 }

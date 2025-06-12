@@ -32,6 +32,28 @@ object SGraph {
             hashConses = new_hashconses,
         )
     }
+
+    def fromSGraph(sg: SGraph) : SGraph = {
+        val new_nodetypes = sg.node_types.clone()
+        val nats_memo = sg.hashConses.nats.memo.clone()
+        val nats_nodes = sg.hashConses.nats.nodes.clone()
+        val dataTypes_memo = sg.hashConses.dataTypes.memo.clone()
+        val dataTypes_nodes = sg.hashConses.dataTypes.nodes.clone()
+        val types_memo = sg.hashConses.types.memo.clone()
+        val types_nodes = sg.hashConses.types.nodes.clone()
+        val nats = new HashCons(nats_memo, nats_nodes)
+        val dataTypes = new HashCons(dataTypes_memo, dataTypes_nodes)
+        val types = new HashCons(types_memo, types_nodes)
+        val new_hashconses = HashConses(
+            nats = nats,
+            dataTypes = dataTypes,
+            types = types
+        )
+        new SGraph(
+            node_types = new_nodetypes,
+            hashConses = new_hashconses,
+        )
+    }
 }
 
 class SGraph(
