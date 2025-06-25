@@ -861,11 +861,23 @@ object ElevateEqsat {
                 // i think it's ok tbh the heap of recursive calls just handle it 
                 // !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
                 if (applied == Nil) {
-                    lazy_map_one(eg, sg, s, tail)
+                    lazy_map_one(eg, sg, s, tail) 
                 } else {
                     applied
                 }
             }
+    }
+
+    def wp_lazy_map_one(eg: EGraph, sg: SGraph, s: StrategyS, listPairs: List[SPair]) : List[SPair] = listPairs match {
+        case Nil => Nil;
+        case head :: tail => {
+            val wped = wp(eg, sg, s, List(head))
+            if (wped == Nil) {
+               wp_lazy_map_one(eg, sg, s, tail) 
+            } else {
+                wped
+            }
+        }
     }
 
     def demonic_acc[A](l1 : List[A], l2: List[A]) : List[A] = (l1, l2) match {
@@ -889,6 +901,18 @@ object ElevateEqsat {
                 demonic_acc(applied, lazy_map_all(eg, sg, s, tail))
             }
         }
+
+    def wp_lazy_map_all(eg: EGraph, sg: SGraph, s: StrategyS, listPairs: List[SPair]) : List[SPair] = listPairs match {
+        case Nil => Nil;
+        case head :: Nil => {
+            val wped = wp(eg, sg, s, List(head))
+            wped
+        };
+        case head :: tail => {
+            val wped = wp(eg, sg, s, List(head))
+            demonic_acc(wped, wp_lazy_map_all(eg, sg, s, tail))
+        };
+    }
     
     def treat_sterm_one(eg: EGraph, sg: SGraph, s: StrategyS, spair: SPair) : List[SPair] = 
         // here, we want to apply One(s)
@@ -928,7 +952,50 @@ object ElevateEqsat {
         }
     }
 
-    def without_nil[A](l: List[List[A]])
+    def wp_sterm_one(eg: EGraph, sg: SGraph, s: StrategyS, spair: SPair) : List[SPair] = {
+        val sterm = spair.sterm
+        val origin = spair.origin 
+        sterm match {
+            case Ec(i) => Nil; //to check
+            case Snode(n) => {
+                if (n.childrenCount() == 0){
+                    Nil // to check
+                } else {
+                    val listChildren = n.children().toList.map(c => SPair(origin, c))
+                    val new_list = wp_lazy_map_one(eg, sg, s, listChildren)
+                    new_list
+                }
+            };
+        }
+    }
+
+    def wp_sterm_all(eg: EGraph, sg: SGraph, s: StrategyS, spair: SPair) : List[SPair] = {
+        val sterm = spair.sterm
+        val origin = spair.origin 
+        sterm match {
+            case Ec(i) => List(spair); // to check
+            case Snode(n) => {
+                if (n.childrenCount() == 0) {
+                    List(spair) // to check
+                } else {
+                    val listChildren = n.children().toList.map(c => SPair(origin, c))
+                    val new_list = wp_lazy_map_all(eg, sg, s, listChildren)
+                    new_list
+                }
+            }
+        }
+    }
+
+    def inter[A](l1: List[A], l2: List[A]): List[A] = l1 match {
+        case Nil => Nil
+        case h::t => {
+            if (l2.contains(h)) {
+                h::(inter(t,l2))
+            } else {
+                inter(t,l2)
+            }
+        };
+    }
 
     def s_apply_aux(eg: EGraph, sg: SGraph, s: StrategyS, worklist: List[SPair]) : List[SPair] = s match {
         case Skip => worklist;
@@ -948,11 +1015,35 @@ object ElevateEqsat {
         case LeftChoice(s1, s2) => {
             val l1 = s_apply_aux(eg, sg, s1, worklist)
             val worklist2 = delta_lists(worklist, l1)
-            val l2 = s_apply_aux(eg, sg, s2, worklist2)
+            val l2 = s_apply_aux(eg, sg, s2, worklist)
+            val l2_bis = inter(worklist2, l2)
             l1 ::: l2
         };
         case One(st) => worklist.map(spair => treat_sterm_one(eg, sg, st, spair)).flatten;
         case All(st) => worklist.map(spair => treat_sterm_all(eg, sg, st, spair)).flatten;
+    }
+
+
+    def wp(eg: EGraph, sg: SGraph, s: StrategyS, P: List[SPair]) : List[SPair] = s match {
+        case Skip => P;
+        case Abort => Nil;
+        case RewriteRule(rw) => {
+            ???
+            // this is where it does not work anymore: 
+            // the problem here is that not every term that i need is represented
+            // for this wp function to work, i would need to have a representation of E
+            // and obviously, i have none
+            // therefore, it can't work
+        };
+        case ComposeSeq(s1, s2) => wp(eg, sg, s1, wp(eg, sg, s2, P));
+        case LeftChoice(s1, s2) => {
+            val l1 = wp(eg, sg, s1, P)
+            val P2 = delta_lists(P, l1)
+            val l2 = wp(eg, sg, s2, P2)
+            l1 ::: l2
+        };
+        case One(st) => P.map(spair => wp_sterm_one(eg, sg, st, spair)).flatten;
+        case All(st) => P.map(spair => wp_sterm_all(eg, sg, st, spair)).flatten;
     }
 
     def listToVec[A](l : List[A]) : Vec[A] = {
