@@ -914,13 +914,41 @@ object ElevateEqsat {
         };
     }
     
+    def listToSet[A](l1: List[A]) : scala.collection.mutable.Set[A] = {
+        var s : scala.collection.mutable.Set[A] = scala.collection.mutable.Set()
+        for (beta <- list) {
+            s += beta
+        }
+        s
+    }
+
+    def setToList[A](s: scala.collection.mutable.Set[A]) : List[A] = {
+        var l : List[A] = Nil 
+        for (beta <- set) {
+            l = beta :: l
+        }
+        l
+    }
+
+    def eliminateDoublons[A](l: List[A]) : List[A] = setToList(listToSet(l))
+
     def treat_sterm_one(eg: EGraph, sg: SGraph, s: StrategyS, spair: SPair) : List[SPair] = 
         // here, we want to apply One(s)
         {
         val sterm = spair.sterm
         val origin = spair.origin 
         sterm match {
-            case Ec(i) => Nil; //to check
+            case Ec(i) => {
+                val nodes = eg.classes(i).nodes.toList
+                val listChildren = nodes.map(n => n.children().toList.map(i => SPair(origin, Ec(eg.find(i))))).flatten 
+                if (listChildren == Nil){
+                    Nil
+                } else {
+                    // might have doublons
+                    val new_list = lazy_map_one(eg, sg, s, eliminateDoublons(listChildren))
+                    new_list
+                }
+            }; //Nil, to check
             case Snode(n) => {
                 if (n.childrenCount() == 0){
                     Nil // to check
@@ -934,12 +962,22 @@ object ElevateEqsat {
     }
 
     def treat_sterm_all(eg: EGraph, sg: SGraph, s: StrategyS, spair: SPair) : List[SPair] = 
-        // here, we want to apply All(s): we consider eclasses as leaves 
+        // here, we want to apply All(s) 
         {
         val sterm = spair.sterm
         val origin = spair.origin 
         sterm match {
-            case Ec(i) => List(spair); // to check
+            case Ec(i) => {
+                val nodes = eg.classes(i).nodes.toList
+                val listChildren = nodes.map(n => n.children().toList.map(i => SPair(origin, Ec(eg.find(i))))).flatten 
+                if (listChildren == Nil){
+                    List(spair)
+                } else {
+                    // might have doublons
+                    val new_list = lazy_map_all(eg, sg, s, eliminateDoublons(listChildren))
+                    new_list
+                }
+            }; //List(spair), to check
             case Snode(n) => {
                 if (n.childrenCount() == 0) {
                     List(spair) // to check
